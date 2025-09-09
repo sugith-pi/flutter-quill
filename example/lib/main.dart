@@ -4,6 +4,7 @@ import 'dart:io' as io show Directory, File;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_quill/flutter_quill.dart';
+import 'package:flutter_quill/quill_delta.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_quill_example/quill_delta_sample.dart';
 import 'package:flutter_quill_extensions/flutter_quill_extensions.dart';
@@ -42,29 +43,58 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   final QuillController _controller = () {
     return QuillController.basic(
-        config: QuillControllerConfig(
-      clipboardConfig: QuillClipboardConfig(
-        enableExternalRichPaste: true,
-        onImagePaste: (imageBytes) async {
-          if (kIsWeb) {
-            // Dart IO is unsupported on the web.
-            return null;
-          }
-          // Save the image somewhere and return the image URL that will be
-          // stored in the Quill Delta JSON (the document).
-          final newFileName =
-              'image-file-${DateTime.now().toIso8601String()}.png';
-          final newPath = path.join(
-            io.Directory.systemTemp.path,
-            newFileName,
-          );
-          final file = await io.File(
-            newPath,
-          ).writeAsBytes(imageBytes, flush: true);
-          return file.path;
-        },
+      config: QuillControllerConfig(
+        clipboardConfig: QuillClipboardConfig(
+          enableExternalRichPaste: true,
+          onRichTextPaste: (delta, isExternal) async {
+            // Remove background color attributes while preserving other formatting
+            final operations = <Operation>[];
+
+            for (final operation in delta.operations) {
+              if (operation.isInsert && operation.attributes != null) {
+                // Create a new attributes map without the background color
+                final filteredAttributes =
+                    Map<String, dynamic>.from(operation.attributes!);
+
+                // Remove the background attribute if it exists
+                filteredAttributes.remove(Attribute.background.key);
+                filteredAttributes.remove(Attribute.color.key);
+
+                // Create new operation with filtered attributes
+                final newOperation = Operation.insert(
+                  operation.data,
+                  filteredAttributes.isEmpty ? null : filteredAttributes,
+                );
+                operations.add(newOperation);
+              } else {
+                // Keep retain and delete operations as-is
+                operations.add(operation);
+              }
+            }
+
+            return Delta.fromOperations(operations);
+          },
+          onImagePaste: (imageBytes) async {
+            if (kIsWeb) {
+              // Dart IO is unsupported on the web.
+              return null;
+            }
+            // Save the image somewhere and return the image URL that will be
+            // stored in the Quill Delta JSON (the document).
+            final newFileName =
+                'image-file-${DateTime.now().toIso8601String()}.png';
+            final newPath = path.join(
+              io.Directory.systemTemp.path,
+              newFileName,
+            );
+            final file = await io.File(
+              newPath,
+            ).writeAsBytes(imageBytes, flush: true);
+            return file.path;
+          },
+        ),
       ),
-    ));
+    );
   }();
   final FocusNode _editorFocusNode = FocusNode();
   final ScrollController _editorScrollController = ScrollController();
@@ -152,6 +182,7 @@ class _HomePageState extends State<HomePage> {
                 scrollController: _editorScrollController,
                 controller: _controller,
                 config: QuillEditorConfig(
+                  useSystemContextMenuItems: true,
                   placeholder: 'Start writing your notes...',
                   padding: const EdgeInsets.all(16),
                   embedBuilders: [
